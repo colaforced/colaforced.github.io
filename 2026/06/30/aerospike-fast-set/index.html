@@ -1,0 +1,316 @@
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>我给 Aerospike 数据库提了一个 31 倍性能优化的 Patch | 喝口可乐就来</title><meta name="author" content="colaforced"><meta name="copyright" content="colaforced"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="我给 Aerospike 数据库提了一个 31 倍性能优化的 Patch 一次从 O(N) 到 O(1) 的旅程：如何在不改客户端的情况下，让一个数据库内核操作快 31 倍。  背景Aerospike 是一个高性能分布式 KV 数据库，广泛用于广告、推荐、风控等对延迟极其敏感的场景。它的核心代码是纯 C 实现，以极致性能著称。 我在生产环境中遇到一个性能问题：一个看起来很简单的批量查询，把整个集群">
+<meta property="og:type" content="article">
+<meta property="og:title" content="我给 Aerospike 数据库提了一个 31 倍性能优化的 Patch">
+<meta property="og:url" content="http://colaforced.github.io/2026/06/30/aerospike-fast-set/index.html">
+<meta property="og:site_name" content="喝口可乐就来">
+<meta property="og:description" content="我给 Aerospike 数据库提了一个 31 倍性能优化的 Patch 一次从 O(N) 到 O(1) 的旅程：如何在不改客户端的情况下，让一个数据库内核操作快 31 倍。  背景Aerospike 是一个高性能分布式 KV 数据库，广泛用于广告、推荐、风控等对延迟极其敏感的场景。它的核心代码是纯 C 实现，以极致性能著称。 我在生产环境中遇到一个性能问题：一个看起来很简单的批量查询，把整个集群">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="https://github.com/colaforced/imgs/blob/main/backgroud/b1.jpg?raw=true">
+<meta property="article:published_time" content="2026-06-29T16:00:00.000Z">
+<meta property="article:modified_time" content="2026-06-30T02:32:37.642Z">
+<meta property="article:author" content="colaforced">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://github.com/colaforced/imgs/blob/main/backgroud/b1.jpg?raw=true"><link rel="shortcut icon" href="/img/favicon.png"><link rel="canonical" href="http://colaforced.github.io/2026/06/30/aerospike-fast-set/index.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css?v=4.13.0"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.1/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0.33/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: undefined,
+  translate: undefined,
+  noticeOutdate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false},
+  copy: {
+    success: 'Copy Successful',
+    error: 'Copy Error',
+    noSupport: 'Browser Not Supported'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '',
+  dateSuffix: {
+    just: 'Just now',
+    min: 'minutes ago',
+    hour: 'hours ago',
+    day: 'days ago',
+    month: 'months ago'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid@4.11.1/dist/infinitegrid.min.js',
+    buttonText: 'Load More'
+  },
+  isPhotoFigcaption: false,
+  islazyload: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: '我给 Aerospike 数据库提了一个 31 倍性能优化的 Patch',
+  isPost: true,
+  isHome: false,
+  isHighlightShrink: false,
+  isToc: true,
+  postUpdate: '2026-06-30 10:32:37'
+}</script><script>(win=>{
+      win.saveToLocal = {
+        set: (key, value, ttl) => {
+          if (ttl === 0) return
+          const now = Date.now()
+          const expiry = now + ttl * 86400000
+          const item = {
+            value,
+            expiry
+          }
+          localStorage.setItem(key, JSON.stringify(item))
+        },
+      
+        get: key => {
+          const itemStr = localStorage.getItem(key)
+      
+          if (!itemStr) {
+            return undefined
+          }
+          const item = JSON.parse(itemStr)
+          const now = Date.now()
+      
+          if (now > item.expiry) {
+            localStorage.removeItem(key)
+            return undefined
+          }
+          return item.value
+        }
+      }
+    
+      win.getScript = (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        script.onerror = reject
+        script.onload = script.onreadystatechange = function() {
+          const loadState = this.readyState
+          if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+          script.onload = script.onreadystatechange = null
+          resolve()
+        }
+
+        Object.keys(attr).forEach(key => {
+          script.setAttribute(key, attr[key])
+        })
+
+        document.head.appendChild(script)
+      })
+    
+      win.getCSS = (url, id = false) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onerror = reject
+        link.onload = link.onreadystatechange = function() {
+          const loadState = this.readyState
+          if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+          link.onload = link.onreadystatechange = null
+          resolve()
+        }
+        document.head.appendChild(link)
+      })
+    
+      win.activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      win.activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+      const t = saveToLocal.get('theme')
+    
+        if (t === 'dark') activateDarkMode()
+        else if (t === 'light') activateLightMode()
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        if (asideStatus === 'hide') {
+          document.documentElement.classList.add('hide-aside')
+        } else {
+          document.documentElement.classList.remove('hide-aside')
+        }
+      }
+    
+      const detectApple = () => {
+        if(/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)){
+          document.documentElement.classList.add('apple')
+        }
+      }
+      detectApple()
+    })(window)</script><meta name="generator" content="Hexo 8.1.2"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img is-center"><img src="https://i.loli.net/2021/02/24/5O1day2nriDzjSu.png" onerror="onerror=null;src='/img/friend_404.gif'" alt="avatar"/></div><div class="sidebar-site-data site-data is-center"><a href="/archives/"><div class="headline">Articles</div><div class="length-num">1</div></a><a href="/tags/"><div class="headline">Tags</div><div class="length-num">0</div></a><a href="/categories/"><div class="headline">Categories</div><div class="length-num">0</div></a></div><hr class="custom-hr"/></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url('https://github.com/colaforced/imgs/blob/main/backgroud/b1.jpg?raw=true')"><nav id="nav"><span id="blog-info"><a href="/" title="喝口可乐就来"><span class="site-name">喝口可乐就来</span></a></span><div id="menus"><div id="toggle-menu"><a class="site-page" href="javascript:void(0);"><i class="fas fa-bars fa-fw"></i></a></div></div></nav><div id="post-info"><h1 class="post-title">我给 Aerospike 数据库提了一个 31 倍性能优化的 Patch</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">Created</span><time class="post-meta-date-created" datetime="2026-06-29T16:00:00.000Z" title="Created 2026-06-30 00:00:00">2026-06-30</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">Updated</span><time class="post-meta-date-updated" datetime="2026-06-30T02:32:37.642Z" title="Updated 2026-06-30 10:32:37">2026-06-30</time></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title="我给 Aerospike 数据库提了一个 31 倍性能优化的 Patch"><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">Post Views:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="post-content" id="article-container"><h1 id="我给-Aerospike-数据库提了一个-31-倍性能优化的-Patch"><a href="#我给-Aerospike-数据库提了一个-31-倍性能优化的-Patch" class="headerlink" title="我给 Aerospike 数据库提了一个 31 倍性能优化的 Patch"></a>我给 Aerospike 数据库提了一个 31 倍性能优化的 Patch</h1><blockquote>
+<p>一次从 O(N) 到 O(1) 的旅程：如何在不改客户端的情况下，让一个数据库内核操作快 31 倍。</p>
+</blockquote>
+<h2 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h2><p><a target="_blank" rel="noopener" href="https://github.com/aerospike/aerospike-server">Aerospike</a> 是一个高性能分布式 KV 数据库，广泛用于广告、推荐、风控等对延迟极其敏感的场景。它的核心代码是纯 C 实现，以极致性能著称。</p>
+<p>我在生产环境中遇到一个性能问题：一个看起来很简单的批量查询，把整个集群打崩了。</p>
+<h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><p>业务需求很简单——批量取 10000 条酒店记录，同时过滤出 <code>masterHotelId</code> 在一个 9000 元素白名单中的记录。用 SQL 表达就是：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> hotels</span><br><span class="line"><span class="keyword">WHERE</span> pk <span class="keyword">IN</span> (pk1, pk2, ..., pk10000)</span><br><span class="line">  <span class="keyword">AND</span> masterHotelId <span class="keyword">IN</span> (<span class="number">1</span>, <span class="number">3</span>, <span class="number">5</span>, ..., <span class="number">9000</span>个值)</span><br></pre></td></tr></table></figure>
+
+<p>Aerospike 用 Filter Expression 实现服务端过滤：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">ListExp.getByValue(</span><br><span class="line">    ListReturnType.EXISTS,</span><br><span class="line">    Exp.intBin(<span class="string">&quot;masterHotelId&quot;</span>),  <span class="comment">// 每条记录的字段</span></span><br><span class="line">    Exp.val(allowedIds)           <span class="comment">// 9000 个允许值（常量）</span></span><br><span class="line">)</span><br></pre></td></tr></table></figure>
+
+<p><strong>结果</strong>：少量请求就把服务端 CPU 打满，所有请求延迟从 &lt;4ms 飙升到 &gt;200ms，整个服务不可用。</p>
+<h2 id="定位"><a href="#定位" class="headerlink" title="定位"></a>定位</h2><h3 id="第一反应：是不是用法不对？"><a href="#第一反应：是不是用法不对？" class="headerlink" title="第一反应：是不是用法不对？"></a>第一反应：是不是用法不对？</h3><p>尝试了各种 workaround：</p>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>A=1 OR A=2 OR ...</code> 9000 个条件</td>
+<td>序列化体积爆炸，更慢</td>
+</tr>
+<tr>
+<td>按 key 分片缩短 list</td>
+<td>小流量可用，大流量仍崩</td>
+</tr>
+<tr>
+<td>用 Map 代替 List</td>
+<td>立即数 Map 没有有序标记，一样慢</td>
+</tr>
+<tr>
+<td>Bitmap</td>
+<td>值域 0~133M，单请求 bitmap &gt;16MB</td>
+</tr>
+</tbody></table>
+<p>全部失败。问题不在用法，在内核。</p>
+<h3 id="深入源码"><a href="#深入源码" class="headerlink" title="深入源码"></a>深入源码</h3><p>我 clone 了 Aerospike Server 的源码（~40 万行 C），追踪 Expression 求值的调用链：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">eval_call()</span><br><span class="line">  → cdt_process_state_packed_list_read_optype()</span><br><span class="line">    → packed_list_get_remove_by_value_interval()</span><br><span class="line">      → list_is_ordered()?</span><br><span class="line">        NO → packed_list_find_rank_range_by_value_interval_unordered()</span><br><span class="line">              for (i = 0; i &lt; ele_count; i++) &#123;  // ← O(N) 逐元素比较</span><br><span class="line">                  msgpack_cmp(&amp;mp, &amp;mp_start);</span><br><span class="line">              &#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>真相大白</strong>：客户端发送的常量列表在 wire 上是普通 msgpack array，缺少 Aerospike CDT 的有序标记（ext header + flags）。服务端检查 <code>list_is_ordered()</code> 时看不到这个标记，于是对每条记录都做 <strong>O(N) 线性扫描</strong>。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">总复杂度 = 10000 keys × 9000 次 msgpack 比较 = 9000 万次操作 / 请求</span><br></pre></td></tr></table></figure>
+
+<p>即使客户端预排序了列表也没用——“有序”是 CDT 存储属性，不是数据的事实属性。服务端无法信任外部数据的排序声明。</p>
+<h2 id="方案设计"><a href="#方案设计" class="headerlink" title="方案设计"></a>方案设计</h2><h3 id="核心思路"><a href="#核心思路" class="headerlink" title="核心思路"></a>核心思路</h3><p>既然不能走有序路径的二分查找，那就造一条更快的路：<strong>编译期构建 hash set，求值期 O(1) 查找</strong>。</p>
+<p>Aerospike 的 Expression 引擎有一个优雅的两阶段架构：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">编译阶段 (build)：解析 expression wire format → 生成内部指令序列（每个 batch 仅一次）</span><br><span class="line">求值阶段 (eval)：对每条记录执行指令序列（per key，可能执行万次）</span><br></pre></td></tr></table></figure>
+
+<p>我的优化插入点：</p>
+<ul>
+<li><strong>编译阶段</strong>：检测到 <code>LIST_GET_ALL_BY_VALUE + EXISTS + 常量列表 ≥ 8 元素</code> 时，从 msgpack 列表构建一个 hash set</li>
+<li><strong>求值阶段</strong>：如果 hash set 存在，直接 hash lookup 返回结果，跳过整个 CDT 路径</li>
+</ul>
+<h3 id="数据结构"><a href="#数据结构" class="headerlink" title="数据结构"></a>数据结构</h3><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">fast_set_s</span> &#123;</span></span><br><span class="line">    <span class="type">const</span> <span class="type">uint8_t</span>* buf;     <span class="comment">// 指向原始 msgpack 字节</span></span><br><span class="line">    <span class="type">uint32_t</span> capacity;      <span class="comment">// 槽位数，2 的幂</span></span><br><span class="line">    <span class="type">uint32_t</span> count;         <span class="comment">// 实际元素数</span></span><br><span class="line">    fast_set_slot slots[];  <span class="comment">// 开放寻址 + 线性探测</span></span><br><span class="line">&#125; fast_set;</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>Hash 函数：<code>cf_wyhash64</code>（代码库已有的高质量非加密 hash）</li>
+<li>冲突处理：开放寻址 + 线性探测</li>
+<li>负载因子：50%（capacity &#x3D; count × 2）</li>
+<li>去重：插入时 hash + memcmp 去重</li>
+</ul>
+<h3 id="关键设计决策"><a href="#关键设计决策" class="headerlink" title="关键设计决策"></a>关键设计决策</h3><p><strong>为什么不改 CDT 层？</strong> CDT 层是共享的通用数据结构引擎，改动影响面太大。而 Expression 编译阶段是一个天然的优化窗口——它已经有类似的先例（GeoJSON 在编译期预计算 region&#x2F;cellid）。</p>
+<p><strong>为什么不用 server 已有的有序数据结构？</strong> CDT ordered-list 需要特定的 msgpack 元数据格式，从客户端强制注入这些元数据既脆弱又侵入。hash set 更通用，且 O(1) 优于 O(log N)。</p>
+<p><strong>对其他场景的影响？</strong> 零。不满足检测条件时 <code>fast_set_p == NULL</code>，唯一开销是 <code>eval_call</code> 中一次指针判空（~1 CPU cycle，分支预测 always-not-taken）。</p>
+<h2 id="实现"><a href="#实现" class="headerlink" title="实现"></a>实现</h2><p>完整改动仅 <strong>+170 行</strong>，全部在 <code>as/src/base/exp.c</code> 一个文件中：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 编译阶段：检测 pattern + 构建 hash set</span></span><br><span class="line"><span class="keyword">if</span> (cdt_op_code == AS_CDT_OP_LIST_GET_ALL_BY_VALUE &amp;&amp;</span><br><span class="line">        op-&gt;type == TYPE_TRILEAN &amp;&amp;</span><br><span class="line">        (op-&gt;system_type &amp; ~CALL_FLAG_MODIFY_LOCAL) == CALL_CDT) &#123;</span><br><span class="line">    <span class="comment">// ... 检查 bin arg 是否为编译期常量</span></span><br><span class="line">    op-&gt;fast_set_p = fast_set_create(bin_val-&gt;value, bin_val-&gt;value_sz);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 求值阶段：O(1) 快速路径</span></span><br><span class="line"><span class="keyword">if</span> (op-&gt;fast_set_p != <span class="literal">NULL</span> &amp;&amp; vec_ix == <span class="number">2</span> &amp;&amp;</span><br><span class="line">        vecs[<span class="number">1</span>].buf != <span class="literal">NULL</span> &amp;&amp; vecs[<span class="number">1</span>].buf_sz &gt; <span class="number">0</span>) &#123;</span><br><span class="line">    <span class="type">bool</span> found = fast_set_contains(op-&gt;fast_set_p, vecs[<span class="number">1</span>].buf, vecs[<span class="number">1</span>].buf_sz);</span><br><span class="line">    ret_val-&gt;r_trilean = found ? AS_EXP_TRUE : AS_EXP_FALSE;</span><br><span class="line">    <span class="keyword">return</span>;  <span class="comment">// 跳过整个 CDT 路径</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="验证"><a href="#验证" class="headerlink" title="验证"></a>验证</h2><p>在同一环境下（Docker, Ubuntu 24.04 arm64, Aerospike CE 8.1.2.0 source build），分别用原版和 patch 版运行 benchmark：</p>
+<h3 id="延迟对比（10000-keys，单-batch）"><a href="#延迟对比（10000-keys，单-batch）" class="headerlink" title="延迟对比（10000 keys，单 batch）"></a>延迟对比（10000 keys，单 batch）</h3><table>
+<thead>
+<tr>
+<th>IN-list 大小</th>
+<th>原版 (ms)</th>
+<th>Patch 后 (ms)</th>
+<th>提升</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>100</td>
+<td>9</td>
+<td>7</td>
+<td>1.3x</td>
+</tr>
+<tr>
+<td>500</td>
+<td>23</td>
+<td>6</td>
+<td><strong>3.8x</strong></td>
+</tr>
+<tr>
+<td>1000</td>
+<td>40</td>
+<td>6</td>
+<td><strong>6.7x</strong></td>
+</tr>
+<tr>
+<td>3000</td>
+<td>101</td>
+<td>7</td>
+<td><strong>14.4x</strong></td>
+</tr>
+<tr>
+<td>5000</td>
+<td>160</td>
+<td>7</td>
+<td><strong>22.9x</strong></td>
+</tr>
+<tr>
+<td>9000</td>
+<td>279</td>
+<td>9</td>
+<td><strong>31x</strong></td>
+</tr>
+</tbody></table>
+<h3 id="可视化"><a href="#可视化" class="headerlink" title="可视化"></a>可视化</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">延迟 (ms)</span><br><span class="line">300 |                                          ×  ← 原版 (O(N) 线性增长)</span><br><span class="line">    |                                    ×</span><br><span class="line">250 |</span><br><span class="line">    |</span><br><span class="line">200 |</span><br><span class="line">    |                              ×</span><br><span class="line">150 |</span><br><span class="line">    |</span><br><span class="line">100 |                        ×</span><br><span class="line">    |</span><br><span class="line"> 50 |              ×</span><br><span class="line">    |        ×</span><br><span class="line">    |  ● ── ● ── ● ── ● ── ● ── ● ── ●  ← Patch 后 (O(1) 恒定)</span><br><span class="line">  0 +----+----+----+----+----+----+----→ IN-list 大小</span><br><span class="line">    0   1K   2K   3K   4K   5K   6K  9K</span><br></pre></td></tr></table></figure>
+
+<h2 id="过程中的一个-Bug"><a href="#过程中的一个-Bug" class="headerlink" title="过程中的一个 Bug"></a>过程中的一个 Bug</h2><p>初始实现中，我将检测条件写成了 <code>AS_CDT_OP_LIST_GET_BY_VALUE</code>（op&#x3D;20）。部署后发现优化没有生效——延迟仍然线性增长。</p>
+<p>通过在编译路径插入诊断日志，发现 Java 客户端的 <code>ListExp.getByValue()</code> 实际发送的是 <code>AS_CDT_OP_LIST_GET_ALL_BY_VALUE</code>（op&#x3D;22）。前者是”获取第一个匹配”，后者是”获取所有匹配”——EXISTS 语义需要后者。</p>
+<p>一个字符的差异，让优化从”完全不工作”变成”31 倍提升”。这类 bug 没有 unit test 能提前覆盖到，只有端到端的 benchmark 才能暴露。</p>
+<h2 id="复杂度对比"><a href="#复杂度对比" class="headerlink" title="复杂度对比"></a>复杂度对比</h2><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>优化前</th>
+<th>优化后</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>编译（per batch）</td>
+<td>O(1)</td>
+<td>O(M) 建 hash set</td>
+</tr>
+<tr>
+<td>求值（per key）</td>
+<td>O(M) 线性扫描</td>
+<td>O(1) hash lookup</td>
+</tr>
+<tr>
+<td>10000 key × 9000 list</td>
+<td><strong>9000 万次 msgpack 比较</strong></td>
+<td><strong>9000 次 hash insert + 10000 次 hash lookup</strong></td>
+</tr>
+<tr>
+<td>额外内存</td>
+<td>0</td>
+<td>~432 KB</td>
+</tr>
+<tr>
+<td>其他路径影响</td>
+<td>—</td>
+<td>1 次 NULL 判断</td>
+</tr>
+</tbody></table>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>这个优化的核心 insight 是：<strong>数据库查询优化器的经典技巧（compile-time hash build）可以应用到 NoSQL 的 expression 引擎中</strong>。</p>
+<p>PostgreSQL 在 Hash Semi-Join 中做完全相同的事——对常量子查询建内存 hash table，然后 probe。区别只是 Aerospike 的 “子查询” 是 expression 中的常量列表，”probe” 是每条记录的 bin 值。</p>
+<p><strong>技术栈</strong>：C (gnu99) &#x2F; msgpack &#x2F; wyhash64 &#x2F; open addressing hash table &#x2F; Aerospike Expression Engine</p>
+<p><strong>改动规模</strong>：1 个文件，+170 行，零依赖新增，零接口变更</p>
+<p><strong>效果</strong>：31x 延迟降低，9000 万次比较降至 1 万次 hash lookup</p>
+<hr>
+<p><em>完整 patch 和 benchmark 代码已提交至 <a target="_blank" rel="noopener" href="https://github.com/aerospike/aerospike-server">aerospike-server</a> 的 <code>perf/exp-fast-set-list-in</code> 分支。</em></p>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>Author: </span><span class="post-copyright-info"><a href="http://colaforced.github.io">colaforced</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>Link: </span><span class="post-copyright-info"><a href="http://colaforced.github.io/2026/06/30/aerospike-fast-set/">http://colaforced.github.io/2026/06/30/aerospike-fast-set/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>Copyright Notice: </span><span class="post-copyright-info">All articles in this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless stating additionally.</span></div></div><div class="tag_share"><div class="post-meta__tag-list"></div><div class="post_share"><div class="social-share" data-image="https://github.com/colaforced/imgs/blob/main/backgroud/b1.jpg?raw=true" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.3/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.3/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="is-center"><div class="avatar-img"><img src="https://i.loli.net/2021/02/24/5O1day2nriDzjSu.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info__name">colaforced</div><div class="author-info__description"></div></div><div class="card-info-data site-data is-center"><a href="/archives/"><div class="headline">Articles</div><div class="length-num">1</div></a><a href="/tags/"><div class="headline">Tags</div><div class="length-num">0</div></a><a href="/categories/"><div class="headline">Categories</div><div class="length-num">0</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/colaforced"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons is-center"><a class="social-icon" href="https://github.com/colaforced" target="_blank" title="Github"><i class="fab fa-github"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>Announcement</span></div><div class="announcement_content">既见君子，云胡不喜！</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>Contents</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#%E6%88%91%E7%BB%99-Aerospike-%E6%95%B0%E6%8D%AE%E5%BA%93%E6%8F%90%E4%BA%86%E4%B8%80%E4%B8%AA-31-%E5%80%8D%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96%E7%9A%84-Patch"><span class="toc-number">1.</span> <span class="toc-text">我给 Aerospike 数据库提了一个 31 倍性能优化的 Patch</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E8%83%8C%E6%99%AF"><span class="toc-number">1.1.</span> <span class="toc-text">背景</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E9%97%AE%E9%A2%98"><span class="toc-number">1.2.</span> <span class="toc-text">问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%AE%9A%E4%BD%8D"><span class="toc-number">1.3.</span> <span class="toc-text">定位</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%AC%AC%E4%B8%80%E5%8F%8D%E5%BA%94%EF%BC%9A%E6%98%AF%E4%B8%8D%E6%98%AF%E7%94%A8%E6%B3%95%E4%B8%8D%E5%AF%B9%EF%BC%9F"><span class="toc-number">1.3.1.</span> <span class="toc-text">第一反应：是不是用法不对？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%B7%B1%E5%85%A5%E6%BA%90%E7%A0%81"><span class="toc-number">1.3.2.</span> <span class="toc-text">深入源码</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%96%B9%E6%A1%88%E8%AE%BE%E8%AE%A1"><span class="toc-number">1.4.</span> <span class="toc-text">方案设计</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%A0%B8%E5%BF%83%E6%80%9D%E8%B7%AF"><span class="toc-number">1.4.1.</span> <span class="toc-text">核心思路</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84"><span class="toc-number">1.4.2.</span> <span class="toc-text">数据结构</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%85%B3%E9%94%AE%E8%AE%BE%E8%AE%A1%E5%86%B3%E7%AD%96"><span class="toc-number">1.4.3.</span> <span class="toc-text">关键设计决策</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%AE%9E%E7%8E%B0"><span class="toc-number">1.5.</span> <span class="toc-text">实现</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E9%AA%8C%E8%AF%81"><span class="toc-number">1.6.</span> <span class="toc-text">验证</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%BB%B6%E8%BF%9F%E5%AF%B9%E6%AF%94%EF%BC%8810000-keys%EF%BC%8C%E5%8D%95-batch%EF%BC%89"><span class="toc-number">1.6.1.</span> <span class="toc-text">延迟对比（10000 keys，单 batch）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%8F%AF%E8%A7%86%E5%8C%96"><span class="toc-number">1.6.2.</span> <span class="toc-text">可视化</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E8%BF%87%E7%A8%8B%E4%B8%AD%E7%9A%84%E4%B8%80%E4%B8%AA-Bug"><span class="toc-number">1.7.</span> <span class="toc-text">过程中的一个 Bug</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%A4%8D%E6%9D%82%E5%BA%A6%E5%AF%B9%E6%AF%94"><span class="toc-number">1.8.</span> <span class="toc-text">复杂度对比</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%BB%E7%BB%93"><span class="toc-number">1.9.</span> <span class="toc-text">总结</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>Recent Post</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/2026/06/30/aerospike-fast-set/" title="我给 Aerospike 数据库提了一个 31 倍性能优化的 Patch"><img src="https://github.com/colaforced/imgs/blob/main/backgroud/b1.jpg?raw=true" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="我给 Aerospike 数据库提了一个 31 倍性能优化的 Patch"/></a><div class="content"><a class="title" href="/2026/06/30/aerospike-fast-set/" title="我给 Aerospike 数据库提了一个 31 倍性能优化的 Patch">我给 Aerospike 数据库提了一个 31 倍性能优化的 Patch</a><time datetime="2026-06-29T16:00:00.000Z" title="Created 2026-06-30 00:00:00">2026-06-30</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2020 - 2026 By colaforced</div><div class="framework-info"><span>Framework </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a><span class="footer-separator">|</span><span>Theme </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="Read Mode"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="Toggle Between Light And Dark Mode"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="Toggle between Single-column and Double-column"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="Setting"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="Table Of Contents"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="Back To Top"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js?v=4.13.0"></script><script src="/js/main.js?v=4.13.0"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0.33/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script></div></body></html>
